@@ -4,6 +4,10 @@
 
 Every message returns strict JSON: `APPROVED` / `BLOCKED`, a 0-100 risk score, a threat category, and a human-readable explanation. If anything is ambiguous, malformed, or a component fails, the answer is **BLOCKED**.
 
+### 🔴 Live demo: https://blueteamaifirewall.onrender.com
+
+*(Hosted on a free tier: if it has been idle, the first load can take 30-60 seconds to wake up. Health check: `/health`, API docs: `/docs`.)*
+
 ---
 
 ## 1. The problem
@@ -184,7 +188,7 @@ gcloud run deploy blue-team-firewall --source . --region asia-south1 \
   --set-secrets GEMINI_API_KEY=gemini-api-key:latest
 ```
 
-*Status: the Dockerfile and deploy command are provided and the app is cloud-ready, but we have run and demonstrated it locally.*
+*Status: **deployed** from this repo's `Dockerfile` as a containerized web service on Render (https://blueteamaifirewall.onrender.com), with `GEMINI_API_KEY` and `FIREWALL_USE_LLM` supplied as environment variables. The same image deploys to Cloud Run with the command above.*
 
 ## 11. Repository layout
 
