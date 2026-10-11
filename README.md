@@ -6,7 +6,7 @@ Every message returns strict JSON: `APPROVED` / `BLOCKED`, a 0-100 risk score, a
 
 ### 🔴 Live demo: https://blueteamaifirewall.onrender.com
 
-*(Hosted on a free tier: if it has been idle, the first load can take 30-60 seconds to wake up. Health check: `/health`, API docs: `/docs`.)*
+*(Hosted on a free tier: if it has been idle, the first load can take 30-60 seconds to wake up. The public demo runs the deterministic layers; the optional Gemini layer is enabled with `FIREWALL_USE_LLM=1`. Health check: `/health`, API docs: `/docs`.)*
 
 ---
 
@@ -113,14 +113,14 @@ Run `python tests.py` (offline, no API key needed).
 
 | Group | Cases | Expected | Result |
 |---|---|---|---|
-| Legitimate balance checks and transfers | 11 | APPROVED | 11 / 11 |
+| Legitimate balance checks and transfers | 12 | APPROVED | 12 / 12 |
 | Direct prompt injection | 7 | BLOCKED | 7 / 7 |
 | Jailbreak and roleplay | 6 | BLOCKED | 6 / 6 |
-| Memo injection | 4 | BLOCKED | 4 / 4 |
+| Memo injection (incl. paraphrased, instruction-language memos) | 5 | BLOCKED | 5 / 5 |
 | Exfiltration, unauthorized transfers, policy | 7 | BLOCKED | 7 / 7 |
 | Obfuscation (spacing, leetspeak, homoglyphs, zero-width, full-width, base64) | 7 | BLOCKED | 7 / 7 |
 | Ambiguous or malformed (empty, wrong type, oversize, negative or zero amounts) | 11 | BLOCKED | 11 / 11 |
-| **Total** | **53** | | **53 / 53, 0 false positives, 0 missed attacks** |
+| **Total** | **55** | | **55 / 55, 0 false positives, 0 missed attacks** |
 
 The same script also runs 20 invariant checks, including:
 - Deterministic output and the JSON contract.
@@ -130,7 +130,7 @@ The same script also runs 20 invariant checks, including:
 - Threat-category labels are correct for 10 representative attacks.
 - The executor refuses non-approved requests.
 
-> These tests exercise the deterministic layers and mock the LLM. The rule set is hand-written and English-focused, and the suite was written alongside it, so treat 53/53 as a regression guard, not a claim of unbreakable security. The Gemini layer exists for what the rules cannot see (see Limitations).
+> These tests exercise the deterministic layers and mock the LLM. The rule set is hand-written and English-focused, and the suite was written alongside it, so treat 55/55 as a regression guard, not a claim of unbreakable security. The Gemini layer exists for what the rules cannot see (see Limitations).
 
 ## 8. Functionality
 
@@ -176,7 +176,7 @@ uvicorn main:app --reload
 
 ## 10. Cloud architecture and deployment
 
-- **Cloud AI:** semantic analysis runs on the **Gemini API** through the official `google-genai` SDK.
+- **Cloud AI:** the semantic layer calls the **Gemini API** through the official `google-genai` SDK. It is switched on with `FIREWALL_USE_LLM=1` and `GEMINI_API_KEY`; the public demo currently runs with it **off** (see Status below).
 - **Stateless, containerizable service:** FastAPI with no local state, configured entirely through environment variables. Secrets are never in code or the repo.
 - **Resilience built in:** timeout budget, retry with backoff, multi-model fallback, and a documented fail-closed degraded state.
 - **Observability hooks:** `/health` endpoint, and each LLM failure logs a `[firewall]` line with the cause.
@@ -188,7 +188,7 @@ gcloud run deploy blue-team-firewall --source . --region asia-south1 \
   --set-secrets GEMINI_API_KEY=gemini-api-key:latest
 ```
 
-*Status: **deployed** from this repo's `Dockerfile` as a containerized web service on Render (https://blueteamaifirewall.onrender.com), with `GEMINI_API_KEY` and `FIREWALL_USE_LLM` supplied as environment variables. The same image deploys to Cloud Run with the command above.*
+*Status: **deployed** from this repo's `Dockerfile` as a containerized web service on Render (https://blueteamaifirewall.onrender.com), in **rules-only mode** (deterministic layers: normalizer, rules, strict parser, memo scanner, policy, executor gate), so the public demo stays reliably available. The Gemini layer is fully implemented and was exercised against the live Gemini API from a local run; enabling it on the host is a configuration change (`FIREWALL_USE_LLM=1` plus `GEMINI_API_KEY`). The same image deploys to Cloud Run with the command above.*
 
 ## 11. Repository layout
 
@@ -197,7 +197,7 @@ firewall_models.py   Pydantic data contract (enums, request, result)
 firewall_engine.py   Normalizer, rules, parser, policy, Gemini layer, aggregator, executor
 main.py              FastAPI app and routes
 demo.html            Live demo UI
-tests.py             53 behavior cases + 20 invariant checks
+tests.py             55 behavior cases + 20 invariant checks
 Dockerfile           Cloud Run / container image
 requirements.txt
 ```

@@ -341,7 +341,7 @@ def gemini_classify(text: str) -> LLMVerdict:
     from google import genai
     from google.genai import errors, types
 
-    key = os.environ.get("GEMINI_API_KEY")
+    key = os.environ.get("GEMINI_API_KEY", "").strip().strip("\"'").strip()
     if not key:
         raise RuntimeError("GEMINI_API_KEY is not set")
     timeout_ms = int(os.environ.get("GEMINI_TIMEOUT_MS", "8000"))
