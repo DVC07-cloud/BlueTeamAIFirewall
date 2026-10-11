@@ -253,6 +253,12 @@ _CURRENCY = {"₹": "INR", "rs": "INR", "rs.": "INR", "inr": "INR", "rupee": "IN
              "dollars": "USD", "eur": "EUR", "€": "EUR", "euro": "EUR",
              "euros": "EUR"}
 _MEMO_OK = re.compile(r"^[\w .,'#/&()\-:]{1,60}$")
+# A payment memo is a short label ("rent", "lunch"). Words that address the
+# assistant or give orders have no business there, so they are a signal on their own.
+_MEMO_SUSPECT = re.compile(
+    r"\b(assistant|system|bot|chatbot|ai|model|instructions?|approve|approved|"
+    r"authori[sz]e|override|ignore|disregard|must|should|always|future|allow|"
+    r"permit|execute|obey)\b", re.I)
 _LOOSE_MEMO = re.compile(r"\b(?:memo|note|reference|for)\b\s*[:\-]?\s*(.+)$", re.I)
 _LOOSE_TRANSFER_VERB = re.compile(r"\b(send|transfer|pay)\b", re.I)
 
@@ -454,6 +460,9 @@ class Firewall:
                 top = max(memo_hits, key=lambda f: f.score)
                 findings.append(Finding("memo_scan", top.name,
                                         T.MEMO_INJECTION, top.score))
+            elif _MEMO_SUSPECT.search(memo):
+                findings.append(Finding("memo_scan", "memo_contains_instruction_language",
+                                        T.MEMO_INJECTION, 70))
         if req:
             findings += policy(req)
 
