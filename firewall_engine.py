@@ -14,6 +14,8 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import sys
+import time
 import unicodedata
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
@@ -35,6 +37,9 @@ BENEFICIARIES = {             # mock allowlist of saved payees (lowercase)
     "rahul", "rahul sharma", "priya", "priya nair", "amit", "amit verma",
     "landlord", "mom", "dad", "john", "john smith", "sara", "sara khan",
 }
+# Add demo payees without editing code:  set FIREWALL_PAYEES=hima,ravi kumar
+BENEFICIARIES |= {p.strip().lower()
+                  for p in os.environ.get("FIREWALL_PAYEES", "").split(",") if p.strip()}
 MOCK_ACCOUNT = {"balance": Decimal("125000.50"), "currency": "INR"}
 
 
@@ -320,23 +325,51 @@ GEMINI_SYSTEM = (
 )
 
 
+_RETRYABLE = {429, 500, 503, 504}
+
+
 def gemini_classify(text: str) -> LLMVerdict:
+    """Classify with Gemini. Tries each model in GEMINI_MODELS, retrying
+    transient errors (429/500/503/504) once, within a total time budget.
+    Raises on failure so the caller fails closed."""
     from google import genai
-    from google.genai import types
+    from google.genai import errors, types
 
     key = os.environ.get("GEMINI_API_KEY")
     if not key:
         raise RuntimeError("GEMINI_API_KEY is not set")
-    client = genai.Client(api_key=key, http_options=types.HttpOptions(timeout=8000))
-    safe = text.replace("</untrusted_input>", "")
-    resp = client.models.generate_content(
-        model=os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
-        contents=f"<untrusted_input>\n{safe}\n</untrusted_input>",
-        config=types.GenerateContentConfig(
-            system_instruction=GEMINI_SYSTEM, temperature=0, seed=0,
-            response_mime_type="application/json"),
-    )
-    return LLMVerdict.model_validate_json(resp.text)
+    timeout_ms = int(os.environ.get("GEMINI_TIMEOUT_MS", "8000"))
+    budget_s = float(os.environ.get("GEMINI_TOTAL_BUDGET_S", "25"))
+    models = [m.strip() for m in os.environ.get(
+        "GEMINI_MODELS",
+        os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+        + ",gemini-2.5-flash-lite,gemini-2.0-flash").split(",") if m.strip()]
+    client = genai.Client(api_key=key, http_options=types.HttpOptions(timeout=timeout_ms))
+    contents = f"<untrusted_input>\n{text.replace('</untrusted_input>', '')}\n</untrusted_input>"
+    config = types.GenerateContentConfig(
+        system_instruction=GEMINI_SYSTEM, temperature=0, seed=0,
+        response_mime_type="application/json")
+
+    deadline = time.monotonic() + budget_s
+    last: Exception = RuntimeError("no Gemini model configured")
+    for model in models:
+        for attempt in range(2):
+            if time.monotonic() > deadline:
+                raise last
+            try:
+                resp = client.models.generate_content(
+                    model=model, contents=contents, config=config)
+                return LLMVerdict.model_validate_json(resp.text)
+            except errors.APIError as e:
+                last = e
+                if getattr(e, "code", None) in _RETRYABLE and attempt == 0:
+                    time.sleep(1.0)
+                    continue          # one quick retry on the same model
+                break                 # give up on this model, try the next
+            except Exception as e:    # timeouts, network, bad JSON
+                last = e
+                break
+    raise last
 
 
 def llm_layer(text: str, fn: Callable[[str], object]) -> list[Finding]:
@@ -344,7 +377,9 @@ def llm_layer(text: str, fn: Callable[[str], object]) -> list[Finding]:
         v = fn(text)
         if not isinstance(v, LLMVerdict):
             v = LLMVerdict.model_validate(v)
-    except Exception:
+    except Exception as e:
+        print(f"[firewall] Gemini layer failed, failing closed: "
+              f"{type(e).__name__}: {str(e)[:300]}", file=sys.stderr)
         return [Finding("llm", "llm_unavailable_or_invalid", T.SYSTEM_ERROR, 100)]
     if v.is_malicious:
         threat = v.threat_category if v.threat_category != T.NONE else T.PROMPT_INJECTION

@@ -6,9 +6,11 @@ Run:  uvicorn main:app --reload
 
 Set FIREWALL_USE_LLM=1 and GEMINI_API_KEY=... to enable the Gemini layer.
 """
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict
 
 from firewall_engine import Firewall, execute_mock
@@ -20,6 +22,11 @@ firewall = Firewall()
 class AnalyzeRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
     message: Any = None   # accept anything; the firewall decides (fail closed)
+
+
+@app.get("/", include_in_schema=False)
+def demo_page() -> FileResponse:
+    return FileResponse(Path(__file__).parent / "demo.html")
 
 
 @app.post("/analyze")
