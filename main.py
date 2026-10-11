@@ -45,30 +45,6 @@ def request(body: AnalyzeRequest) -> dict:
     return out
 
 
-@app.get("/health/llm")
-def health_llm() -> dict:
-    """Live Gemini self-test. Shows the real error (key redacted) so a
-    misconfigured deployment can be diagnosed from the browser."""
-    import os
-    from firewall_engine import gemini_classify
-
-    key = os.environ.get("GEMINI_API_KEY", "")
-    info = {
-        "use_llm_flag": os.environ.get("FIREWALL_USE_LLM"),
-        "key_present": bool(key.strip()),
-        "key_length": len(key.strip().strip("\"'")),
-        "models": os.environ.get("GEMINI_MODELS", "default"),
-    }
-    try:
-        v = gemini_classify("check my balance")
-        return {**info, "ok": True, "verdict": v.model_dump(mode="json")}
-    except Exception as e:
-        msg = str(e)
-        if key:
-            msg = msg.replace(key.strip().strip("\"'"), "[REDACTED]")
-        return {**info, "ok": False, "error_type": type(e).__name__, "error": msg[:600]}
-
-
 @app.get("/health")
 def health() -> dict:
     return {"ok": True, "llm_layer": firewall.use_llm}

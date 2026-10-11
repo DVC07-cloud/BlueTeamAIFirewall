@@ -6,7 +6,7 @@ Every message returns strict JSON: `APPROVED` / `BLOCKED`, a 0-100 risk score, a
 
 ### 🔴 Live demo: https://blueteamaifirewall.onrender.com
 
-*(Hosted on a free tier: if it has been idle, the first load can take 30-60 seconds to wake up. The public demo runs the deterministic layers; the optional Gemini layer is enabled with `FIREWALL_USE_LLM=1`. Health check: `/health`, API docs: `/docs`.)*
+*(Hosted on a free tier: if it has been idle, the first load can take 30-60 seconds to wake up. The demo runs the full pipeline, including the Gemini semantic layer. Health check: `/health`, API docs: `/docs`.)*
 
 ---
 
@@ -176,7 +176,7 @@ uvicorn main:app --reload
 
 ## 10. Cloud architecture and deployment
 
-- **Cloud AI:** the semantic layer calls the **Gemini API** through the official `google-genai` SDK. It is switched on with `FIREWALL_USE_LLM=1` and `GEMINI_API_KEY`; the public demo currently runs with it **off** (see Status below).
+- **Cloud AI:** the semantic layer calls the **Gemini API** through the official `google-genai` SDK. It is switched on with `FIREWALL_USE_LLM=1` and `GEMINI_API_KEY`, and is **on** in the public demo.
 - **Stateless, containerizable service:** FastAPI with no local state, configured entirely through environment variables. Secrets are never in code or the repo.
 - **Resilience built in:** timeout budget, retry with backoff, multi-model fallback, and a documented fail-closed degraded state.
 - **Observability hooks:** `/health` endpoint, and each LLM failure logs a `[firewall]` line with the cause.
@@ -188,7 +188,7 @@ gcloud run deploy blue-team-firewall --source . --region asia-south1 \
   --set-secrets GEMINI_API_KEY=gemini-api-key:latest
 ```
 
-*Status: **deployed** from this repo's `Dockerfile` as a containerized web service on Render (https://blueteamaifirewall.onrender.com), in **rules-only mode** (deterministic layers: normalizer, rules, strict parser, memo scanner, policy, executor gate), so the public demo stays reliably available. The Gemini layer is fully implemented and was exercised against the live Gemini API from a local run; enabling it on the host is a configuration change (`FIREWALL_USE_LLM=1` plus `GEMINI_API_KEY`). The same image deploys to Cloud Run with the command above.*
+*Status: **deployed** from this repo's `Dockerfile` as a containerized web service on Render (https://blueteamaifirewall.onrender.com), with the **full pipeline live**: the deterministic layers (normalizer, rules, strict parser, memo scanner, policy, executor gate) plus the Gemini semantic classifier. `GEMINI_API_KEY`, `FIREWALL_USE_LLM=1` and the model list are supplied as environment variables, never stored in the repo. If Gemini is unreachable, the service fails closed rather than approving anything. The same image deploys to Cloud Run with the command above.*
 
 ## 11. Repository layout
 
