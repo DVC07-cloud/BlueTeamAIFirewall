@@ -103,7 +103,7 @@ How we use Gemini, and how we limit what it can do:
 - **Closed output space.** The model must answer with JSON: `is_malicious`, a `threat_category` from a fixed enum, an integer `confidence`, and a short `reason`. We validate it with a Pydantic schema. Anything else is a failure and the request is blocked.
 - **Bias toward blocking.** The prompt says "when unsure, set `is_malicious` to true," and includes the plain-benign examples (balance check, simple transfer) so it does not over-block.
 - **Reproducibility.** `temperature=0`, fixed `seed`, JSON response mode.
-- **Reliability engineering.** Transient errors (429/500/503/504) are retried once, then the call falls through an ordered model list (`gemini-2.5-flash`, `gemini-2.5-flash-lite`, `gemini-2.0-flash`) under a 25-second total budget. If all fail, the request is blocked and the failure is logged.
+- **Reliability engineering.** Transient errors (429/500/503/504) are retried once, then the call falls through an ordered model list (`gemini-3.8-flash`, `gemini-3.5-flash-lite`, `gemini-3.6-flash`, then older 2.5 models) under a 40-second total budget. The list is configurable because Google retires models quickly. If all fail, the request is blocked and the failure is logged.
 - **No tools, no memory, no arguments.** The model has no tool access and extracts nothing. Its output is only a risk signal that is combined by `max`.
 - **Cost and latency control.** Rule hits scoring ≥ 90 short-circuit the LLM call.
 
@@ -169,9 +169,9 @@ uvicorn main:app --reload
 |---|---|---|
 | `FIREWALL_USE_LLM` | `0` | `1` enables the Gemini layer |
 | `GEMINI_API_KEY` | none | Required when the LLM layer is on (missing key = fail closed) |
-| `GEMINI_MODELS` | `gemini-2.5-flash,gemini-2.5-flash-lite,gemini-2.0-flash` | Ordered fallback list |
-| `GEMINI_TIMEOUT_MS` | `8000` | Per-call timeout |
-| `GEMINI_TOTAL_BUDGET_S` | `25` | Total time budget across retries |
+| `GEMINI_MODELS` | `gemini-3.8-flash,gemini-3.5-flash-lite,gemini-3.6-flash,gemini-2.5-flash,gemini-2.5-flash-lite` | Ordered fallback list (Google retires models often) |
+| `GEMINI_TIMEOUT_MS` | `15000` | Per-call timeout |
+| `GEMINI_TOTAL_BUDGET_S` | `40` | Total time budget across retries |
 | `FIREWALL_PAYEES` | none | Extra saved payees, comma-separated |
 
 ## 10. Cloud architecture and deployment

@@ -344,16 +344,20 @@ def gemini_classify(text: str) -> LLMVerdict:
     key = os.environ.get("GEMINI_API_KEY", "").strip().strip("\"'").strip()
     if not key:
         raise RuntimeError("GEMINI_API_KEY is not set")
-    timeout_ms = int(os.environ.get("GEMINI_TIMEOUT_MS", "8000"))
-    budget_s = float(os.environ.get("GEMINI_TOTAL_BUDGET_S", "25"))
+    timeout_ms = int(os.environ.get("GEMINI_TIMEOUT_MS", "15000"))
+    budget_s = float(os.environ.get("GEMINI_TOTAL_BUDGET_S", "40"))
+    # Google retires models often (gemini-2.0-flash shut down 2026-06-01; some
+    # keys get 404 on 2.5). Order: newest first, older ones as last resorts.
+    default_models = ("gemini-3.8-flash,gemini-3.5-flash-lite,gemini-3.6-flash,"
+                      "gemini-2.5-flash,gemini-2.5-flash-lite")
     models = [m.strip() for m in os.environ.get(
-        "GEMINI_MODELS",
-        os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-        + ",gemini-2.5-flash-lite,gemini-2.0-flash").split(",") if m.strip()]
+        "GEMINI_MODELS", os.environ.get("GEMINI_MODEL", "") + ","
+        + default_models).split(",") if m.strip()]
     client = genai.Client(api_key=key, http_options=types.HttpOptions(timeout=timeout_ms))
     contents = f"<untrusted_input>\n{text.replace('</untrusted_input>', '')}\n</untrusted_input>"
     config = types.GenerateContentConfig(
-        system_instruction=GEMINI_SYSTEM, temperature=0, seed=0,
+        system_instruction=GEMINI_SYSTEM,
+        temperature=float(os.environ.get("GEMINI_TEMPERATURE", "0")), seed=0,
         response_mime_type="application/json")
 
     deadline = time.monotonic() + budget_s
