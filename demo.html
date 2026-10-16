@@ -35,9 +35,13 @@
   table{width:100%;border-collapse:collapse;font-size:13px} td,th{padding:5px 6px;border-bottom:1px solid var(--line);text-align:left}
   th{color:var(--mute);font-weight:500} td.t{max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .empty{color:var(--mute)} #llm{font-size:12px;color:var(--mute);float:right}
+  .who{display:flex;justify-content:flex-end;align-items:center;gap:10px;font-size:13px;color:var(--mute);min-height:24px;margin-bottom:6px}
+  .who a,.who button{color:var(--accent);background:none;border:0;font:inherit;cursor:pointer;text-decoration:none;padding:0}
+  .who b{color:var(--text);font-weight:600}
 </style>
 </head>
 <body><div class="wrap">
+  <div id="who" class="who"></div>
   <h1>Blue-Team AI Firewall <span id="llm"></span></h1>
   <p class="sub">Every banking message is analyzed before any tool runs. Rules + Gemini classify; deterministic code decides; anything unclear is blocked.</p>
 
@@ -89,6 +93,7 @@ async function run(){
   $("go").disabled = true;
   try{
     const r = await fetch("/request",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({message:text})});
+    if (r.status === 401) { location.href = "/login?next=/"; return; }
     const data = await r.json(); render(text, data);
   }catch(e){ $("result").replaceChildren(el("p",{textContent:"Could not reach the firewall API: "+e}));}
   $("go").disabled = false;
@@ -121,6 +126,17 @@ function render(text, data){
     el("td",{className:"t",textContent:String(text),title:String(text)})]);
   $("log").prepend(tr);
 }
+Promise.all([fetch("/auth/me").then(r=>r.json()), fetch("/auth/config").then(r=>r.json())]).then(([me, cfg]) => {
+  const who = $("who");
+  if (me.authenticated) {
+    const out = el("button", {textContent:"Sign out", onclick: async () => { await fetch("/auth/logout",{method:"POST"}); location.reload(); }});
+    who.replaceChildren(el("span",{},["Signed in as ", el("b",{textContent:me.user.name})]), out);
+  } else if (cfg.auth_required) {
+    location.href = "/login?next=/";
+  } else {
+    who.replaceChildren(el("a",{href:"/login?next=/",textContent:"Sign in / Sign up"}));
+  }
+}).catch(()=>{});
 fetch("/health").then(r=>r.json()).then(h=>{$("llm").textContent = h.llm_layer?"Gemini layer: ON":"Gemini layer: OFF (rules only)";});
 </script>
 </body></html>

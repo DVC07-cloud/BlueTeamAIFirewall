@@ -144,11 +144,22 @@ The same script also runs 20 invariant checks, including:
 | `POST /request` | Full flow: firewall, then the mock tool only if `APPROVED`. |
 | `GET /health` | Liveness and whether the Gemini layer is on. |
 | `GET /docs` | Interactive OpenAPI docs. |
+| `GET /login` | Sign in / sign up page (email or phone, one-time code). |
+| `POST /auth/start`, `POST /auth/verify` | Request and verify a one-time code. |
+| `GET /auth/me`, `POST /auth/logout` | Current session, sign out. |
 
 ```bash
 curl -X POST localhost:8000/analyze -H "content-type: application/json" \
      -d '{"message": "send 500 to Rahul for rent"}'
 ```
+
+**Sign in / sign up** at `/login`: passwordless, with an **email** or a **phone number**. Sign up collects name, email and phone, and verifies whichever the user picks with a 6-digit code. Sign in accepts either email or phone. Security properties:
+- Codes are random, stored only as HMAC hashes, expire in 5 minutes, allow 5 wrong attempts, and work once.
+- Resend cooldown, a per-destination hourly cap, and a best-effort per-IP cap.
+- Sign-in never reveals whether an account exists.
+- Session tokens are random and stored only as hashes; the cookie is `HttpOnly`, `SameSite=Lax`, and `Secure` over HTTPS.
+- Setting `AUTH_REQUIRED=1` puts the firewall endpoints behind sign-in (off by default so the public demo stays open).
+- Delivery uses SMTP for email and Twilio for SMS when configured. Otherwise **demo mode** shows the code on screen, clearly labelled, so the flow can be demonstrated without a provider. Set `AUTH_DEMO_OTP=0` for real use.
 
 ## 9. Run it
 
@@ -173,6 +184,12 @@ uvicorn main:app --reload
 | `GEMINI_TIMEOUT_MS` | `15000` | Per-call timeout |
 | `GEMINI_TOTAL_BUDGET_S` | `40` | Total time budget across retries |
 | `FIREWALL_PAYEES` | none | Extra saved payees, comma-separated |
+| `AUTH_REQUIRED` | `0` | `1` requires sign-in for `/analyze` and `/request` |
+| `AUTH_DEMO_OTP` | `1` | `1` shows the code on screen (demo); `0` for real delivery only |
+| `AUTH_SECRET` | random per process | Key for hashing codes; set a long random value in production |
+| `AUTH_DB` | `auth.db` | SQLite file for accounts and sessions |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | none | Email delivery |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM` | none | SMS delivery |
 
 ## 10. Cloud architecture and deployment
 
@@ -196,8 +213,11 @@ gcloud run deploy blue-team-firewall --source . --region asia-south1 \
 firewall_models.py   Pydantic data contract (enums, request, result)
 firewall_engine.py   Normalizer, rules, parser, policy, Gemini layer, aggregator, executor
 main.py              FastAPI app and routes
+auth.py              Email/phone one-time-code sign in and sign up
 demo.html            Live demo UI
+login.html           Sign in / sign up page
 tests.py             55 behavior cases + 20 invariant checks
+tests_auth.py        40 auth checks (flow, lockout, rate limits, gating)
 Dockerfile           Cloud Run / container image
 requirements.txt
 ```
@@ -206,7 +226,8 @@ requirements.txt
 
 - **English-centric rules.** Multilingual and heavily paraphrased attacks depend on the Gemini layer. If Gemini is unavailable, such attacks are only partly covered, and the system falls closed only on errors, not on unrecognized semantics.
 - **Strict grammar trades recall for safety.** Natural but unusual phrasings of a legitimate request are blocked as `AMBIGUOUS_INPUT`. This is deliberate for a banking surface, but it costs usability.
-- **Mock banking.** Payees, limits, and the account are mocked. There is no real authentication, session, or per-user policy.
+- **Mock banking.** Payees, limits, and the account are mocked, and there is no per-user policy. Accounts are real but lightweight: a SQLite file, which on a free host with an ephemeral disk is wiped on redeploy.
+- **Sign-in delivery.** The public demo runs in demo mode (code shown on screen). Real SMS and email need provider credentials; SMS to India also needs sender/template registration (DLT) with most providers.
 - **Hand-written evaluation set.** The next step is a larger adversarial corpus (public jailbreak datasets plus red-team generated variants) and measured precision/recall for the rule layer alone versus rules + Gemini.
 - **Roadmap:** a rate limiter and per-user risk memory, an audit log with replay, an adversarial self-play harness that generates new attacks against the firewall, and per-user payee allowlists.
 

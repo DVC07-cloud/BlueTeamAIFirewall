@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sign in | Blue-Team AI Firewall</title>
+<style>
+  :root{--bg:#0b1220;--panel:#121a2b;--line:#23304a;--text:#e6ecf8;--mute:#8fa0bf;
+        --ok:#22c55e;--bad:#ef4444;--warn:#f59e0b;--accent:#3b82f6}
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--text);
+       font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif;padding:16px}
+  main{width:100%;max-width:420px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:24px}
+  h1{font-size:20px;margin:0 0 2px} .sub{color:var(--mute);margin:0 0 18px;font-size:14px}
+  .tabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:#0d1526;border:1px solid var(--line);
+        border-radius:10px;padding:4px;margin-bottom:16px}
+  .tabs button{background:transparent;color:var(--mute);border:0;border-radius:7px;padding:8px;font:inherit;cursor:pointer}
+  .tabs button[aria-selected="true"]{background:var(--accent);color:#fff;font-weight:600}
+  label{display:block;font-size:13px;color:var(--mute);margin:12px 0 4px}
+  input[type=text],input[type=email],input[type=tel]{width:100%;background:#0d1526;color:var(--text);
+        border:1px solid var(--line);border-radius:8px;padding:10px;font:inherit}
+  input:focus{outline:2px solid var(--accent);outline-offset:1px}
+  .radios{display:flex;gap:16px;margin-top:4px;color:var(--text)}
+  .radios label{display:flex;gap:6px;align-items:center;margin:0;color:var(--text);font-size:14px}
+  .primary{width:100%;margin-top:18px;background:var(--accent);color:#fff;border:0;border-radius:8px;
+           padding:11px;font:inherit;font-weight:600;cursor:pointer}
+  .primary:disabled{opacity:.55;cursor:wait}
+  .link{background:none;border:0;color:var(--accent);font:inherit;cursor:pointer;padding:0}
+  .link:disabled{color:var(--mute);cursor:default}
+  .row{display:flex;justify-content:space-between;margin-top:14px;font-size:14px}
+  #code{text-align:center;font-size:26px;letter-spacing:.4em;font-variant-numeric:tabular-nums}
+  .notice{border:1px solid var(--warn);background:rgba(245,158,11,.1);color:#fcd89a;border-radius:8px;
+          padding:8px 10px;font-size:13px;margin-bottom:14px}
+  .demo{border:1px dashed var(--ok);background:rgba(34,197,94,.08);border-radius:8px;padding:8px 10px;
+        font-size:13px;margin-top:12px}
+  .demo b{font-size:18px;letter-spacing:.2em;color:var(--ok)}
+  #msg{min-height:20px;margin:12px 0 0;font-size:14px}
+  #msg.err{color:var(--bad)} #msg.ok{color:var(--ok)}
+  [hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+  <h1>Blue-Team AI Firewall</h1>
+  <p class="sub" id="sub">Sign in or create an account with a one-time code.</p>
+
+  <div class="notice" id="demoNotice" hidden>Demo mode: the verification code is shown on screen instead of being sent. No real SMS or email goes out.</div>
+
+  <div class="tabs" id="tabs" role="tablist">
+    <button type="button" role="tab" id="tab-in" aria-selected="true">Sign in</button>
+    <button type="button" role="tab" id="tab-up" aria-selected="false">Sign up</button>
+  </div>
+
+  <form id="f-in" novalidate>
+    <label for="identifier">Email or phone number</label>
+    <input id="identifier" type="text" autocomplete="username" inputmode="email" placeholder="you@example.com or 9876543210" required>
+    <button class="primary" type="submit">Send code</button>
+  </form>
+
+  <form id="f-up" novalidate hidden>
+    <label for="name">Full name</label>
+    <input id="name" type="text" autocomplete="name" maxlength="60" required>
+    <label for="email">Email</label>
+    <input id="email" type="email" autocomplete="email" required>
+    <label for="phone">Phone number</label>
+    <input id="phone" type="tel" autocomplete="tel" placeholder="9876543210 or +14155550123" required>
+    <label>Send my verification code to</label>
+    <div class="radios">
+      <label><input type="radio" name="channel" value="email" checked> Email</label>
+      <label><input type="radio" name="channel" value="phone"> Phone</label>
+    </div>
+    <button class="primary" type="submit">Create account</button>
+  </form>
+
+  <form id="f-otp" novalidate hidden>
+    <p id="sentTo" class="sub" style="margin-bottom:8px"></p>
+    <label for="code">6-digit code</label>
+    <input id="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]*" required>
+    <div class="demo" id="demoBox" hidden>Demo code: <b id="demoCode"></b></div>
+    <button class="primary" type="submit">Verify and continue</button>
+    <div class="row">
+      <button type="button" class="link" id="back">&larr; Back</button>
+      <button type="button" class="link" id="resend" disabled>Resend code</button>
+    </div>
+  </form>
+
+  <p id="msg" role="alert" aria-live="polite"></p>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+let next = params.get("next") || "/";
+if (!next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")) next = "/";   // no open redirects
+
+let mode = "signin", lastStart = null, challenge = null, timer = null, demoOn = false;
+
+function say(text, kind){ const m=$("msg"); m.textContent=text||""; m.className=kind||""; }
+
+async function post(path, body){
+  const r = await fetch(path, {method:"POST", headers:{"content-type":"application/json"}, credentials:"same-origin", body:JSON.stringify(body)});
+  let data = {}; try { data = await r.json(); } catch(e) {}
+  if (!r.ok) {
+    const d = data.detail;
+    throw new Error(typeof d === "string" ? d : "Please check the details you entered.");
+  }
+  return data;
+}
+
+function setMode(m){
+  mode = m;
+  $("tab-in").setAttribute("aria-selected", m==="signin");
+  $("tab-up").setAttribute("aria-selected", m==="signup");
+  $("f-in").hidden = m!=="signin"; $("f-up").hidden = m!=="signup";
+  $("f-otp").hidden = true; $("tabs").hidden = false; say("");
+}
+$("tab-in").onclick = () => setMode("signin");
+$("tab-up").onclick = () => setMode("signup");
+
+function startTimer(sec){
+  clearInterval(timer);
+  const b = $("resend"); let left = sec; b.disabled = true;
+  const tick = () => { b.textContent = left>0 ? `Resend in ${left}s` : "Resend code"; b.disabled = left>0; if(left--<=0) clearInterval(timer); };
+  tick(); timer = setInterval(tick, 1000);
+}
+
+function showOtp(data){
+  challenge = data.challenge_id;
+  $("f-in").hidden = true; $("f-up").hidden = true; $("tabs").hidden = true; $("f-otp").hidden = false;
+  $("sentTo").textContent = "Enter the code sent to " + data.sent_to + "." +
+    (mode === "signin" ? " If this account exists, a code is on its way." : "");
+  $("code").value = ""; $("code").focus();
+  $("demoBox").hidden = !data.demo_code;
+  if (data.demo_code) $("demoCode").textContent = data.demo_code;
+  startTimer(data.resend_after || 30);
+  say("");
+}
+
+async function start(body, btn){
+  btn.disabled = true; say("");
+  try { lastStart = body; showOtp(await post("/auth/start", body)); }
+  catch(e){ say(e.message, "err"); }
+  btn.disabled = false;
+}
+
+$("f-in").addEventListener("submit", e => { e.preventDefault();
+  start({mode:"signin", identifier:$("identifier").value}, e.submitter || e.target.querySelector("button[type=submit]")); });
+
+$("f-up").addEventListener("submit", e => { e.preventDefault();
+  start({mode:"signup", name:$("name").value, email:$("email").value, phone:$("phone").value,
+         channel:document.querySelector("input[name=channel]:checked").value},
+        e.submitter || e.target.querySelector("button[type=submit]")); });
+
+$("f-otp").addEventListener("submit", async e => { e.preventDefault();
+  const btn = e.submitter || e.target.querySelector("button[type=submit]"); btn.disabled = true;
+  try {
+    await post("/auth/verify", {challenge_id:challenge, code:$("code").value});
+    say("Signed in. Redirecting...", "ok"); location.replace(next);
+  } catch(err){ say(err.message, "err"); btn.disabled = false; $("code").select(); }
+});
+
+$("code").addEventListener("input", e => { e.target.value = e.target.value.replace(/\D/g,"").slice(0,6); });
+$("back").onclick = () => { clearInterval(timer); setMode(mode); say(""); };
+$("resend").onclick = () => start(lastStart, $("resend"));
+
+// Already signed in? Go straight on. Also show demo-mode notice.
+fetch("/auth/me", {credentials:"same-origin"}).then(r=>r.json()).then(d => { if (d.authenticated) location.replace(next); }).catch(()=>{});
+fetch("/auth/config").then(r=>r.json()).then(c => { demoOn = c.demo_otp; $("demoNotice").hidden = !c.demo_otp; }).catch(()=>{});
+</script>
+</body>
+</html>

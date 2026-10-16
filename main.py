@@ -6,17 +6,27 @@ Run:  uvicorn main:app --reload
 
 Set FIREWALL_USE_LLM=1 and GEMINI_API_KEY=... to enable the Gemini layer.
 """
+import os
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict
 
+from auth import current_user, router as auth_router
 from firewall_engine import Firewall, execute_mock
 
 app = FastAPI(title="Blue-Team AI Firewall")
+app.include_router(auth_router)
 firewall = Firewall()
+
+
+def require_login(request: Request) -> None:
+    """Gate the firewall endpoints behind sign-in when AUTH_REQUIRED=1 (default: off,
+    so the public demo stays open to judges)."""
+    if os.environ.get("AUTH_REQUIRED", "0") == "1" and current_user(request) is None:
+        raise HTTPException(401, "Sign in required.")
 
 
 class AnalyzeRequest(BaseModel):
@@ -29,14 +39,14 @@ def demo_page() -> FileResponse:
     return FileResponse(Path(__file__).parent / "demo.html")
 
 
-@app.post("/analyze")
+@app.post("/analyze", dependencies=[Depends(require_login)])
 def analyze(body: AnalyzeRequest) -> dict:
     """Firewall verdict only. No tool is ever executed here."""
     return firewall.analyze(body.message).model_dump(mode="json")
 
 
-@app.post("/request")
-def request(body: AnalyzeRequest) -> dict:
+@app.post("/request", dependencies=[Depends(require_login)])
+def banking_request(body: AnalyzeRequest) -> dict:
     """Full banking flow: firewall first, mock tool only if APPROVED."""
     result = firewall.analyze(body.message)
     out: dict = {"firewall": result.model_dump(mode="json"), "execution": None}
